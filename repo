@@ -1,0 +1,112 @@
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.graph_objects as go
+import numpy as np
+import datetime
+
+# Define cities and coordinates
+cities = {
+    "Beijing": (116.4, 39.9),
+    "Shanghai": (121.5, 31.2),
+    "Chengdu": (104.1, 30.6),
+    "Urumqi": (87.6, 43.8),
+    "Lhasa": (91.1, 29.6)
+}
+
+def get_daylight_bounds(hour, season):
+    """Return approximate solar noon longitude center"""
+    base_offset = -15 if season == 'Winter' else 15  # later sunrises in winter
+    lon_center = ((hour % 24) * 15 + base_offset + 180) % 360 - 180
+    return lon_center - 90, lon_center + 90
+
+# Create Dash app
+app = dash.Dash(__name__)
+app.title = "China Solar Time Simulation"
+
+app.layout = html.Div([
+    html.H1("🌞 China Daylight Simulation", style={"textAlign": "center"}),
+    
+    html.Div([
+        "Select Hour:",
+        dcc.Slider(id="hour-slider", min=0, max=23, step=1, value=8,
+                   marks={i: f"{i}:00" for i in range(0, 24, 3)}),
+    ], style={"margin": "30px"}),
+
+    html.Div([
+        "Season:",
+        dcc.RadioItems(
+            id="season-toggle",
+            options=[{'label': 'Winter', 'value': 'Winter'},
+                     {'label': 'Summer', 'value': 'Summer'}],
+            value='Winter',
+            inline=True,
+            style={"margin": "10px"}
+        )
+    ]),
+
+    dcc.Graph(id="map-graph")
+])
+
+@app.callback(
+    Output("map-graph", "figure"),
+    Input("hour-slider", "value"),
+    Input("season-toggle", "value")
+)
+def update_map(hour, season):
+    fig = go.Figure()
+
+    # Background map
+    fig.update_geos(
+        projection_type="natural earth",
+        resolution=50,
+        showcountries=True,
+        showsubunits=True,
+        showland=True,
+        landcolor="rgb(230, 230, 230)",
+        showocean=True,
+        oceancolor="rgb(190, 220, 255)",
+        lataxis_range=[18, 54],
+        lonaxis_range=[75, 135]
+    )
+
+    # Add cities
+    for city, (lon, lat) in cities.items():
+        solar_offset = (lon - 120) / 15
+        solar_hour = (hour + solar_offset) % 24
+        solar_time = f"{int(solar_hour):02d}:{int((solar_hour%1)*60):02d}"
+        fig.add_trace(go.Scattergeo(
+            lon=[lon],
+            lat=[lat],
+            text=f"{city}<br>CST: {hour:02d}:00<br>Solar: {solar_time}",
+            mode="markers+text",
+            marker=dict(size=7, color="red"),
+            textposition="top center"
+        ))
+
+    # Add daylight band
+    day_start, day_end = get_daylight_bounds(hour, season)
+    fig.add_trace(go.Scattergeo(
+        lon=[day_start, day_start, day_end, day_end],
+        lat=[15, 55, 55, 15],
+        fill="toself",
+        fillcolor="rgba(255,255,100,0.2)",
+        line=dict(color="yellow"),
+        hoverinfo="skip",
+        mode="lines"
+    ))
+
+    fig.update_layout(
+        geo=dict(
+            scope="asia",
+            showframe=False,
+            showcoastlines=True,
+        ),
+        margin={"r":0,"t":0,"l":0,"b":0},
+        height=600
+    )
+
+    return fig
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
